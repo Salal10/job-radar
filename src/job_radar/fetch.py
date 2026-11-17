@@ -4,6 +4,7 @@ Run: uv run python -m job_radar.fetch
 """
 import asyncio
 import csv
+import random
 import time
 from collections import Counter
 
@@ -54,6 +55,7 @@ def company_rows(results: list[tuple[dict, list[Job] | str]], matcher: SponsorMa
 def main() -> None:
     with open(COMPANIES, encoding="utf-8") as f:
         companies = list(csv.DictReader(f))
+    random.shuffle(companies)  # companies.csv is sorted by ATS: unshuffled, 8 requests at once all hit one server
 
     start = time.perf_counter()
     results = asyncio.run(fetch_all(companies))
@@ -70,6 +72,8 @@ def main() -> None:
     print("By source:", dict(Counter(job.source for job in jobs)))
     print("Companies by size:", dict(Counter(row["size"] for row in rows)))
     print("On a sponsor list:", dict(Counter(row["sponsor_in"] for row in rows if row["sponsor_in"])))
+    for row, error in failed:
+        print(f"  FAILED {row['ats']}/{row['slug']}: {error}")
 
 
 if __name__ == "__main__":
