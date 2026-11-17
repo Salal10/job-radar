@@ -40,8 +40,9 @@ async def greenhouse(client: httpx.AsyncClient, slug: str, name: str) -> list[Jo
     ) for j in r.json()["jobs"]]
 
 
-async def lever(client: httpx.AsyncClient, slug: str, name: str) -> list[Job]:
-    r = await client.get(f"https://api.lever.co/v0/postings/{slug}", params={"mode": "json"})
+async def lever(client: httpx.AsyncClient, slug: str, name: str,
+                api: str = "api.lever.co", source: str = "lever") -> list[Job]:
+    r = await client.get(f"https://{api}/v0/postings/{slug}", params={"mode": "json"})
     r.raise_for_status()
     jobs = []
     for j in r.json():
@@ -49,8 +50,7 @@ async def lever(client: httpx.AsyncClient, slug: str, name: str) -> list[Job]:
         created = j.get("createdAt")  # milliseconds since 1970
         pay = j.get("salaryRange")
         jobs.append(Job(
-            id=f"lever:{slug}:{j['id']}", source="lever", company=name,
-            title=j["text"], location=" / ".join(cats.get("allLocations") or [cats.get("location", "")]),
+            id=f"{source}:{slug}:{j['id']}", source=source, company=name,            title=j["text"], location=" / ".join(cats.get("allLocations") or [cats.get("location", "")]),
             workplace="" if j.get("workplaceType") in (None, "unspecified") else j["workplaceType"],
             department=cats.get("department") or cats.get("team") or "",
             url=j["hostedUrl"],
@@ -82,4 +82,9 @@ async def ashby(client: httpx.AsyncClient, slug: str, name: str) -> list[Job]:
     return jobs
 
 
-FETCHERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}
+async def lever_eu(client: httpx.AsyncClient, slug: str, name: str) -> list[Job]:
+    """Lever keeps EU companies' data on a separate server; same JSON shape."""
+    return await lever(client, slug, name, api="api.eu.lever.co", source="lever_eu")
+
+
+FETCHERS = {"greenhouse": greenhouse, "lever": lever, "lever_eu": lever_eu, "ashby": ashby}
