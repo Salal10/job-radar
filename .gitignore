@@ -13,5 +13,10 @@ data/
 # Personal search profiles
 profiles.toml
 
-# Local editor/tool settings
-.claude/
+# Local editor/tool settings (the shared commands in .claude/skills are part of the project)
+.claude/*
+!.claude/skills/
+
+# Personal: CVs, experience bank and tailored applications
+cvs/
+applications/

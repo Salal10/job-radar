@@ -14,7 +14,7 @@ import re
 import sys
 import time
 import tomllib
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -50,12 +50,16 @@ def candidates(db, profile: dict) -> list[tuple]:
                      e.from_pakistan, e.visa, e.relocation, e.regions, COALESCE(c.sponsor_in, ''), COALESCE(c.size, '')
               FROM jobs j JOIN eligibility e ON e.job_id = j.id LEFT JOIN companies c ON c.board = j.board
               WHERE j.closed_on IS NULL AND ({routes})
+                AND j.posted_at >= ?
                 AND j.id NOT IN (SELECT job_id FROM tracker WHERE status != 'saved')"""
     # applied / rejected / hidden jobs leave the match list (they live on the tracker page), so it refills
-    rows = db.execute(sql).fetchall()
+    max_age = int(profile.get("max_age_days", 3650))  # e.g. 15: only jobs posted in the last 15 days
+    since = (date.today() - timedelta(days=max_age)).isoformat()  # local date, not SQLite's UTC "now"
+    rows = db.execute(sql, (since,)).fetchall()
     regions = set(profile.get("regions", []))
     any_words = [w.lower() for w in profile.get("title_any", [])]
     none_words = [w.lower() for w in profile.get("title_none", [])]
+    excluded = set(profile.get("exclude_countries", []))  # e.g. ["Pakistan"]: no jobs located there
 
     wanted = profile.get("routes", list(ROUTES))
     sizes = set(profile.get("sizes", []))
@@ -65,6 +69,8 @@ def candidates(db, profile: dict) -> list[tuple]:
         if any_words and not any(word_in(w, title) for w in any_words):
             return False
         if any(word_in(w, title) for w in none_words):
+            return False
+        if excluded and excluded & places.countries_in(f"{row[5] or ''} {row[1]}"):  # location, or "(Lahore)" in a title
             return False
         remote = "remote" in wanted and row[7] in ("yes", "maybe")
         # A UK sponsor licence helps only for a job IN the UK: Renesas is on the UK list, its Poland jobs aren't
@@ -187,6 +193,9 @@ def main() -> None:
     profiles = tomllib.loads(PROFILES.read_text(encoding="utf-8"))["profile"]
     db = store.connect()
     db.executescript(SCHEMA)
+    names = [p["name"] for p in profiles]  # a profile deleted from profiles.toml loses its tab too
+    db.execute(f"DELETE FROM matches WHERE profile NOT IN ({','.join('?' * len(names))})", names)
+    db.commit()
     embedder = TextEmbedding(MODEL, cache_dir="data/models")  # downloaded once (~130 MB), then offline
     today = date.today().isoformat()
     for profile in profiles:

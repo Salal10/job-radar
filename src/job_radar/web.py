@@ -5,13 +5,18 @@ Only this PC can open it (it listens on 127.0.0.1). Matches come from the last `
 """
 import html
 import sys
+import tomllib
 import webbrowser
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from job_radar import check, store
-from job_radar.match import sponsor_here
+from job_radar.job import profile_cvs
+from job_radar.match import PROFILES, sponsor_here
+
+PROMPT = Path("prompts/tailor-cv.md")
 
 PORT = 8766
 STATUSES = ["saved", "applied", "interview", "offer", "rejected", "hidden"]
@@ -33,7 +38,8 @@ nav{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 16px}nav a{padding:6px 12px
  border:1px solid var(--line)}.b.good{color:var(--good);border-color:var(--good)}.b.bad{color:var(--bad);border-color:var(--bad)}
 .ev{font-size:13px;color:var(--muted);font-style:italic}form.inline{display:inline}button,select,input{font:inherit;
  padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer}
-button:hover{border-color:var(--accent)}.actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+button:hover,a.btn:hover{border-color:var(--accent)}a.btn{padding:4px 10px;border-radius:6px;border:1px solid var(--line);
+ text-decoration:none;color:var(--text);background:var(--card)}textarea{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px}.actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 input[name=note]{min-width:220px;flex:1}.new{color:var(--good);font-weight:600;font-size:12px}
 h2{margin:24px 0 4px;font-size:17px;text-transform:capitalize}.closed{color:var(--bad);font-size:12px}
 @media (max-width:600px){input[name=note]{min-width:0;width:100%}}
@@ -49,10 +55,22 @@ def page(title: str, body: str, profiles: list[str], current: str) -> str:
                    for p in profiles)
     tabs += f'<a href="/tracker" class="{"on" if current == "tracker" else ""}">Tracker</a>'
     return f"""<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>{esc(title)} · Job Radar</title><style>{CSS}</style><main><h1>Job Radar</h1><nav>{tabs}</nav>{body}</main></html>"""
+<title>{esc(title)} · Job Radar</title><style>{CSS}</style><main><h1>Job Radar</h1><nav>{tabs}</nav>{body}</main>
+<script>
+// "Copy" buttons copy the text of the element named in data-copy. If the browser blocks the clipboard,
+// the text is selected instead, ready for Ctrl+C.
+document.addEventListener("click", async (e) => {{
+  const b = e.target.closest("button[data-copy]"); if (!b) return;
+  const box = document.getElementById(b.dataset.copy), label = b.textContent;
+  try {{ await navigator.clipboard.writeText(box.value); b.textContent = "✓ Copied"; }}
+  catch {{ box.focus(); box.select(); b.textContent = "Selected: press Ctrl+C"; }}
+  setTimeout(() => b.textContent = label, 2500);
+}});
+</script></html>"""
 
 
-def status_buttons(job_id: str, current: str, back: str, note: str = "", with_note: bool = False) -> str:
+def status_buttons(job_id: str, current: str, back: str, note: str = "", with_note: bool = False,
+                   with_tailor: bool = True) -> str:
     hidden = f'<input type=hidden name=job_id value="{esc(job_id)}"><input type=hidden name=back value="{esc(back)}">'
     if with_note:  # tracker page: pick any status + a note
         options = "".join(f'<option {"selected" if s == current else ""}>{s}</option>' for s in STATUSES)
@@ -60,7 +78,45 @@ def status_buttons(job_id: str, current: str, back: str, note: str = "", with_no
                 f'<input name=note value="{esc(note)}" placeholder="note: who you talked to, next step..."><button>Save</button></form>')
     buttons = "".join(f'<button name=status value={s}>{label}</button>'
                       for s, label in (("saved", "☆ Save"), ("applied", "✉ Applied"), ("hidden", "✕ Not for me")))
-    return f'<form method=post action=/status class=actions>{hidden}{buttons}</form>'
+    # Ways to apply: directly, or tailor a CV first (prompt for any AI chat, or Claude Code)
+    tailor = f'<a class=btn href="/tailor?{urlencode({"job": job_id})}">📝 Tailor CV</a>' if with_tailor else ""
+    return f'<form method=post action=/status class=actions>{hidden}{buttons}{tailor}</form>'
+
+
+def tailor_page(db, job_id: str, profiles: list[str]) -> str:
+    """One job: apply directly, or tailor a CV with the prompt in prompts/tailor-cv.md (any AI chat or Claude Code)."""
+    row = db.execute("SELECT title, company, location, url, description FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if not row:
+        return page("Not found", "<p>This job is no longer in the database.</p>", profiles, "")
+    title, company, location, url, description = row
+    config = tomllib.loads(PROFILES.read_text(encoding="utf-8")) if PROFILES.exists() else {}
+    skip = ", ".join(config.get("skip_red_flags", [])) or "(nothing)"
+    prompt = PROMPT.read_text(encoding="utf-8").format(
+        title=title, company=company, location=location or "not given", url=url, skip_red_flags=skip,
+        description=description or "(no description stored: open the link and paste the job text here)")
+    match = db.execute("SELECT profile FROM matches WHERE job_id = ? ORDER BY rank LIMIT 1", (job_id,)).fetchone()
+    cvs = profile_cvs(match[0] if match else None)
+    cv_hint = (f"Your CV for this kind of job: <code>{esc(' or '.join(cvs))}</code>" if cvs
+               else "Set <code>cv</code> in profiles.toml to see which CV fits this kind of job.")
+    command = f"/tailor-cv {job_id}"
+    body = f"""<h2 style="text-transform:none">{esc(title)}</h2><p class=meta>{esc(company)} · {esc(location)}</p>
+<p class=meta>{cv_hint}</p>
+<div class=card><div class=title>1. Apply directly</div>
+<p>Use any CV you like. Open the post and apply on the company's site, then mark it ✉ Applied.</p>
+<div class=actions><a class=btn href="{esc(url)}" target=_blank rel="noopener noreferrer">Open the job post ↗</a>
+{status_buttons(job_id, "", f"/tailor?{urlencode({'job': job_id})}", with_tailor=False)}</div></div>
+<div class=card><div class=title>2. Tailor your CV with any AI chat (Claude, ChatGPT, …)</div>
+<p>Copy this prompt (the job is already filled in), paste it into the chat, and <b>attach your CV</b>.
+It scores your CV against this job, rewrites it with the XYZ formula, and checks it like an ATS. It must only use facts
+from your CV. Read the result before sending it.</p>
+<textarea id=prompt readonly rows=12 style="width:100%;font:13px/1.4 ui-monospace,monospace">{esc(prompt)}</textarea>
+<div class=actions><button type=button data-copy=prompt>📋 Copy prompt</button></div></div>
+<div class=card><div class=title>3. Or let Claude Code make the PDF (optional)</div>
+<p>If you use Claude Code: open it in the job-radar folder and run this command. It runs the same 3 steps using
+<code>cvs/experience.md</code> (all your true facts) and saves a one-page PDF and a report in <code>applications/</code>.</p>
+<input id=cmd readonly value="{esc(command)}" style="width:100%">
+<div class=actions><button type=button data-copy=cmd>📋 Copy command</button></div></div>"""
+    return page(f"Tailor CV · {title}", body, profiles, "")
 
 
 def badges(answer: dict, sponsor: str) -> str:
@@ -142,6 +198,8 @@ class Handler(BaseHTTPRequestHandler):
         profiles = [p for p, in db.execute("SELECT DISTINCT profile FROM matches ORDER BY profile")]
         if url.path == "/tracker":
             return self.reply(tracker_page(db, profiles))
+        if url.path == "/tailor":
+            return self.reply(tailor_page(db, parse_qs(url.query).get("job", [""])[0], profiles))
         if url.path != "/":
             return self.send_error(404)
         profile = parse_qs(url.query).get("p", [profiles[0] if profiles else ""])[0]
@@ -175,10 +233,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print(f"Job Radar: http://localhost:{PORT}  (Ctrl+C to stop)")
+    port = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else PORT
+    print(f"Job Radar: http://localhost:{port}  (Ctrl+C to stop)")
     if "--no-browser" not in sys.argv:
-        webbrowser.open(f"http://localhost:{PORT}")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+        webbrowser.open(f"http://localhost:{port}")
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
