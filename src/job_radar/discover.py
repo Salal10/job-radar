@@ -165,10 +165,16 @@ async def check_all(boards: list[tuple[str, str]]) -> list[tuple[dict | None, st
 def main() -> None:
     with open(COMPANIES, encoding="utf-8") as f:
         known = list(csv.DictReader(f))
-    have = {(row["ats"], row["slug"]) for row in known}
+    # Compare slugs ignoring case: SmartRecruiters needs the right case for some companies ("AFRY"), but for
+    # many both "Dominos" and "dominos" work and return the SAME board: keeping both fetched it twice.
+    have = {(row["ats"], row["slug"].lower()) for row in known}
 
     print(f"Searching the latest {CRAWLS} Common Crawl indexes...")
-    candidates = list(boards_in_common_crawl() - have)
+    candidates = []
+    for ats, slug in sorted(boards_in_common_crawl()):  # sorted: "AFRY" before "afry", the right case first
+        if (ats, slug.lower()) not in have:
+            have.add((ats, slug.lower()))
+            candidates.append((ats, slug))
     random.shuffle(candidates)  # mix the ATS platforms, so 8 parallel requests don't all hit one server
     print(f"{len(candidates)} boards we don't have yet. Checking which are live...")
     start = time.perf_counter()
