@@ -1,0 +1,68 @@
+job_id,from_pakistan,visa,relocation,reviewed,note
+ashby:airspace-intelligence.com:f21a1962-f754-40a3-99e2-7437c03fa499,no,unknown,yes,1,"Gdańsk, Poland; 'Generous relocation package ... to Tricity area'"
+ashby:astera:b5272d53-8833-4840-8b8b-eb13c858b6ea,no,yes,yes,1,"'on-site at our Emeryville, CA'; 'Visa sponsorship'; 'Relocation packages will be considered'"
+ashby:camunda:e98c0d0c-9e42-4fa1-979d-8f2e77295efc,no,unknown,unknown,1,"title '- UK' (though 'based elsewhere, hired via Remote.com')"
+ashby:elevenlabs:c89e8bf6-6d4c-43bd-bd2a-661ae73c82bf,no,unknown,unknown,1,'remote ... from anywhere in Colombia'
+ashby:far.ai:a5cc0d32-533a-4cee-bc28-3b494f331d34,yes,yes,unknown,1,'can hire remotely in most countries'; 'We sponsor visas for in-person employees'
+ashby:honeydew:2d6f4777-b6b4-4624-bc38-e51e7f00e736,yes,unknown,unknown,1,'Work from anywhere!' (needs valid US license)
+ashby:mistral.ai:4a158704-0293-4bb6-b9e8-223134b300d9,no,unknown,yes,1,Paris; benefits 'may include ... relocation support'
+ashby:n8n:2ac306a9-1d24-4b19-8261-32902b7dd423,no,unknown,unknown,1,"'Remote | Europe', European countries only"
+ashby:n8n:bcf96878-d41a-479d-b506-7753356077c4,no,yes,unknown,1,Europe-only list; 'We can sponsor visas to Germany'
+ashby:overjet:c450ae59-3b79-4eb7-a286-6b63ef69856b,yes,unknown,unknown,1,"'Pakistan / Lahore, Pakistan', remote"
+ashby:periodic-labs:95d290bd-6420-42e8-82a0-f0230722c19c,no,yes,unknown,1,"Menlo Park onsite; 'Yes, we sponsor visas'"
+ashby:primeintellect:d70f38c9-ae8e-4252-933a-666cb900e3b4,maybe,yes,yes,1,'Flexible work (remote or San Francisco)'; 'Visa sponsorship and relocation support'
+ashby:sfcompute:4b20fd99-8536-4a62-ad74-b7ba98f126be,maybe,unknown,unknown,1,"'Remote', no region given"
+ashby:skelar:6df69dbb-46bd-40e7-b21a-59604d67eb03,yes,unknown,unknown,1,"'Global, Remote'"
+ashby:vogel:6871d857-11b6-4087-99cc-64b3dc2df288,no,unknown,unknown,1,onsite München/Aalen; 'keine Remote-Company'
+ashby:witnessai:e40b6cb1-f125-404d-98b6-5002d1187625,no,unknown,unknown,1,'U.S. — Central (Remote) or Northeast (Remote)'
+greenhouse:31stunion:8195192003,no,unknown,unknown,1,"San Mateo, California"
+greenhouse:3cloud:8700936002,no,no,unknown,1,'Remote - US'; 'we cannot sponsor applicants for work visas'
+greenhouse:adaptivebiotechnologies:8464777002,maybe,no,unknown,1,'Remote (WFH)' no region; 'not currently sponsoring candidates requiring work authorization'
+greenhouse:agency:4605457101,yes,unknown,unknown,1,'World Wide - Remote'
+greenhouse:agency:4676516101,yes,unknown,unknown,1,'World Wide - Remote'
+greenhouse:agency:4927760101,yes,unknown,unknown,1,'World Wide - Remote'
+greenhouse:anthropic:5223093008,no,yes,unknown,1,"SF/NYC, 25% in office; 'We do sponsor visas!'"
+greenhouse:anthropic:5301737008,no,yes,unknown,1,"SF/NYC/Seattle, 25% in office; 'We do sponsor visas!'"
+greenhouse:anthropic:5432845008,no,yes,unknown,1,"SF/DC, 25% in office; 'We do sponsor visas!'"
+greenhouse:anthropic:5481842008,no,yes,unknown,1,"NYC/SF, 25% in office; 'We do sponsor visas!'"
+greenhouse:atwellgroup:5275896007,maybe,unknown,unknown,1,"'Remote'; salary 'based upon the Denver, Colorado labor market'"
+greenhouse:blackbirdhealth:5455511008,maybe,unknown,unknown,1,"'Remote'; title 'MD License' (licence, region not stated)"
+greenhouse:canonical:3256589,yes,unknown,unknown,1,'Home based - Worldwide'; 'Globally remote role'
+greenhouse:canonical:5146620,yes,unknown,unknown,1,"'Worldwide, this is a globally remote role'"
+greenhouse:equipmentsharecom:8327937,no,unknown,yes,1,"Newark, NJ; 'Relocation assistance (as required)'"
+greenhouse:esri:5263600007,no,no,unknown,1,"Redlands, CA; 'Visa sponsorship is not available'"
+greenhouse:givedirectly:4739969005,yes,no,unknown,1,'fully remote ... overlap with an East Africa timezone'; 'unable to sponsor ... U.S. or U.K.'
+greenhouse:gomotive:8021088002,yes,unknown,unknown,1,'Remote - Islamabad & Lahore'
+greenhouse:gomotive:8928881002,yes,unknown,unknown,1,'Pakistan - Remote'
+greenhouse:helsing:4997901101,no,unknown,yes,1,"Paris; 'Relocation support : up to €2,500'"
+greenhouse:itd:4483378009,no,no,unknown,1,Menlo Park/Fremont/SF/Austin; 'unable to offer sponsorship'
+greenhouse:its:6354503003,maybe,unknown,unknown,1,"'IT Technician I (Remote)', location 'International'"
+greenhouse:kikoff:4458616009,no,yes,unknown,1,"'Hybrid, 3 days onsite in San Francisco'; 'Visa sponsorship available'"
+greenhouse:missionhealthcare:4380545009,no,unknown,yes,1,"Vancouver, WA; 'Relocation Assistance'"
+greenhouse:missionlane:8691107002,no,no,unknown,1,"'Remote, United States'; 'not sponsoring new applicant employment authorization'"
+greenhouse:monzo:7732437,no,yes,yes,1,London/'within the UK'; 'We can sponsor visas'; 'help you relocate to the UK'
+greenhouse:monzoreferrals:8059754,no,yes,yes,1,'London or Remote (UK)'; 'We can sponsor visas'; 'help you relocate to the UK'
+greenhouse:panthalassa:6239029004,no,unknown,yes,1,'on-site position' Portland; 'Relocation assistance ... to Portland'
+greenhouse:phaidra:4716415005,no,unknown,unknown,1,'Remote - US/Canada (Eastern or Central Time)'
+greenhouse:podium81:6447162,yes,unknown,unknown,1,"'In-Office Lahore, Pakistan'"
+greenhouse:prolificacademicltd:4850547101,no,unknown,unknown,1,"title 'Greece Residents ... Patras, Greece'"
+greenhouse:prolificacademicltd:4853451101,no,unknown,unknown,1,title '... AI Training - USA'
+greenhouse:samsara:7555217,no,unknown,unknown,1,'remote position open to candidates residing in the US'
+greenhouse:sigmacomputing:7598665003,maybe,unknown,unknown,1,"'Remote', no region given"
+greenhouse:speechify:6203292004,no,unknown,unknown,1,"title '- Redmond, WA, USA', location 'Remote'"
+greenhouse:thenewyorktimes:4742426005,no,no,unknown,1,New York in-office; 'We will not sponsor work visas for the fellowship'
+greenhouse:urpt:5291096007,no,unknown,unknown,1,"Lindale, TX clinic"
+greenhouse:verkada:4185105007,no,no,unknown,1,'onsite in our Tempe office'; 'unable to sponsor'
+lever:allegiantair:411d4c0b-db91-476a-b794-5cd9bed7b3f7,no,no,unknown,1,Las Vegas onsite; 'Visa Sponsorship Available: No' (relocation is a job duty)
+lever:getwingapp:2add6482-9501-45e0-9ff1-006cbe8f3931,no,unknown,unknown,1,"remote, location 'Kharkiv'; no excerpt"
+recruitee:careyn:2731342,no,unknown,unknown,1,"'Werken op afstand' but care at clients' homes, 'VPT-team Noord-Oost/Oost' NL"
+recruitee:easyapplyrekluti:2571688,no,unknown,unknown,1,"title '- República Dominicana', remote"
+smartrecruiters:DeliveryHero:744000052239266,yes,unknown,unknown,1,"'Islamabad, Punjab, Pakistan'; no excerpt"
+smartrecruiters:Miratech1:744000158511135,no,unknown,unknown,1,"remote, location 'Ivano-Frankivsk, Ukraine'; no excerpt"
+smartrecruiters:RVAllgemeineVersicherungenAG:744000151759818,no,unknown,unknown,1,"remote, location 'Stuttgart, Germany'; no excerpt"
+smartrecruiters:SGS:744000132805359,no,unknown,unknown,1,"remote, location 'Madrid, Spain'; no excerpt"
+smartrecruiters:SMCP:744000152467463,no,unknown,unknown,1,"'Galeries Lafayette Haussmann', Paris; no excerpt"
+smartrecruiters:softwaremind:744000162166820,no,unknown,unknown,1,"remote, location 'San José, Costa Rica'; no excerpt"
+workable:alabama-solutions:D708ABACE3,no,unknown,unknown,1,"'100% Remoto', location 'Uruguay'"
+workable:devsinc-17:802A856918,yes,unknown,unknown,1,'join our development team in Islamabad'
+workable:zyte:F04C00786F,yes,unknown,unknown,1,"remote, 'Bengaluru, India / Lahore, Pakistan'"
