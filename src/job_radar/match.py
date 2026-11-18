@@ -24,7 +24,7 @@ from job_radar import check, places, store
 PROFILES = Path("profiles.toml")
 MODEL = "BAAI/bge-small-en-v1.5"  # small (130 MB), English, runs on CPU; 384 numbers per text
 # Not a score you can read as "%": cosine similarity between texts. Small boosts move clear wins up a little.
-BOOSTS = {"from Pakistan: yes": 0.04, "visa: yes": 0.03, "relocation: yes": 0.02, "sponsor list": 0.01}
+BOOSTS = {"remote: yes": 0.04, "visa: yes": 0.03, "relocation: yes": 0.02, "sponsor list": 0.01}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS embeddings (job_id TEXT PRIMARY KEY, model TEXT, vector BLOB);
@@ -36,7 +36,11 @@ CREATE TABLE IF NOT EXISTS matches (
 ROUTES = {
     "remote": "e.from_pakistan IN ('yes', 'maybe')",
     "move": "e.visa != 'no' AND (e.visa = 'yes' OR e.relocation = 'yes' OR COALESCE(c.sponsor_in, '') != '')",
+    # Every job that doesn't refuse sponsorship. Meant with `countries`: many employers (e.g. Germany, UAE) arrange
+    # visas without saying so in the post, and the sponsor registers only cover the UK and the Netherlands.
+    "any": "e.visa != 'no'",
 }
+DEFAULT_ROUTES = ["remote", "move"]
 
 
 def job_text(title: str, department: str, description: str) -> str:
@@ -45,7 +49,7 @@ def job_text(title: str, department: str, description: str) -> str:
 
 
 def candidates(db, profile: dict) -> list[tuple]:
-    routes = " OR ".join(f"({ROUTES[r]})" for r in profile.get("routes", ROUTES))
+    routes = " OR ".join(f"({ROUTES[r]})" for r in profile.get("routes", DEFAULT_ROUTES))
     sql = f"""SELECT j.id, j.title, j.department, j.description, j.company, j.location, j.url,
                      e.from_pakistan, e.visa, e.relocation, e.regions, COALESCE(c.sponsor_in, ''), COALESCE(c.size, '')
               FROM jobs j JOIN eligibility e ON e.job_id = j.id LEFT JOIN companies c ON c.board = j.board
@@ -59,9 +63,10 @@ def candidates(db, profile: dict) -> list[tuple]:
     regions = set(profile.get("regions", []))
     any_words = [w.lower() for w in profile.get("title_any", [])]
     none_words = [w.lower() for w in profile.get("title_none", [])]
-    excluded = set(profile.get("exclude_countries", []))  # e.g. ["Pakistan"]: no jobs located there
+    excluded = country_names(profile, "exclude_countries")  # e.g. ["Pakistan"]: no jobs located there
+    only = country_names(profile, "countries")              # e.g. ["Germany", "United Kingdom"]: only jobs there
 
-    wanted = profile.get("routes", list(ROUTES))
+    wanted = profile.get("routes", DEFAULT_ROUTES)
     sizes = set(profile.get("sizes", []))
 
     def keep(row) -> bool:
@@ -70,18 +75,36 @@ def candidates(db, profile: dict) -> list[tuple]:
             return False
         if any(word_in(w, title) for w in none_words):
             return False
-        if excluded and excluded & places.countries_in(f"{row[5] or ''} {row[1]}"):  # location, or "(Lahore)" in a title
+        located = places.countries_in(f"{row[5] or ''} {row[1]}") if excluded or only else set()  # location + "(Lahore)" in titles
+        if excluded & located:
             return False
+        # Where: `countries` and `regions` combine with OR ("Europe" + "United Arab Emirates" = either). A job you can do
+        # remotely from anywhere always passes: where the company sits doesn't matter then.
+        if (only or regions) and row[7] != "yes":
+            if not (only & located or regions & set(filter(None, row[10].split(",")))):
+                return False
         remote = "remote" in wanted and row[7] in ("yes", "maybe")
         # A UK sponsor licence helps only for a job IN the UK: Renesas is on the UK list, its Poland jobs aren't
         move = "move" in wanted and row[8] != "no" and (row[8] == "yes" or row[9] == "yes" or row[13])
-        if not (remote or move):
+        anything = "any" in wanted and row[8] != "no"
+        if not (remote or move or anything):
             return False
-        if sizes and row[12] not in sizes:  # e.g. ["startup", "scale-up"]
-            return False
-        # remote-from-Pakistan jobs pass any region filter: where the company is doesn't matter then
-        return not regions or row[7] == "yes" or bool(regions & set(filter(None, row[10].split(","))))
+        return not sizes or row[12] in sizes  # e.g. ["startup", "scale-up"]
     return [row for row in map(with_sponsor_here, rows) if keep(row)]
+
+
+def country_names(profile: dict, key: str) -> set[str]:
+    """["UK", "germany", "Deutschland"] -> {"United Kingdom", "Germany"}. Unknown names are reported, not ignored."""
+    names = set()
+    for given in profile.get(key, []):
+        if given in places.COUNTRIES:
+            names.add(given)
+        elif len(found := places.countries_in(given) or places.countries_in(given.title())) == 1:
+            names |= found
+        else:
+            sys.exit(f'{profile["name"]}: {key} has "{given}", which isn\'t a country Job Radar knows. '
+                     f'Use the English name, e.g. "Germany", "United Kingdom", "United Arab Emirates".')
+    return names
 
 
 SPONSOR_COUNTRY = {"UK": "United Kingdom", "NL": "Netherlands"}
@@ -140,7 +163,7 @@ def rank(profile: dict, rows: list[tuple], vectors: dict, embedder) -> list[dict
     similarity = matrix @ query / (np.linalg.norm(matrix, axis=1) * np.linalg.norm(query))
     results = []
     for row, sim in zip(rows, similarity):
-        flags = [name for name, on in (("from Pakistan: yes", row[7] == "yes"), ("visa: yes", row[8] == "yes"),
+        flags = [name for name, on in (("remote: yes", row[7] == "yes"), ("visa: yes", row[8] == "yes"),
                                        ("relocation: yes", row[9] == "yes"), ("sponsor list", bool(row[13])))
                  if on]
         results.append({"job_id": row[0], "title": row[1], "company": row[4], "location": row[5], "url": row[6],
@@ -166,14 +189,15 @@ def second_look(db, profile: dict, ranked: list[dict]) -> list[dict]:
     check.fill_descriptions(db, ids)
     check.ask_llm(db, ids)
     final = check.final_answers(db, ids)
-    wanted = profile.get("routes", list(ROUTES))
+    wanted = profile.get("routes", DEFAULT_ROUTES)
     kept, dropped = [], []
     for r in ranked:
         answer = final[r["job_id"]]
         remote = "remote" in wanted and answer["from_pakistan"] in ("yes", "maybe")
-        move = "move" in wanted and answer["visa"] != "no" and (
-            answer["visa"] == "yes" or answer["relocation"] == "yes" or r["sponsor_here"])
-        flags = [f for f, on in (("from Pakistan: yes", answer["from_pakistan"] == "yes"),
+        move = ("move" in wanted and answer["visa"] != "no" and (
+            answer["visa"] == "yes" or answer["relocation"] == "yes" or r["sponsor_here"])) \
+            or ("any" in wanted and answer["visa"] != "no")
+        flags = [f for f, on in (("remote: yes", answer["from_pakistan"] == "yes"),
                                  ("visa: yes", answer["visa"] == "yes"),
                                  ("relocation: yes", answer["relocation"] == "yes")) if on]
         if r["sponsor_here"]:

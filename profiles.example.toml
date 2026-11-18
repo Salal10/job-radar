@@ -12,11 +12,12 @@ looking_for = """Backend software engineer building APIs and services in C# / .N
 payments or fintech, cloud (Azure or AWS), SQL databases."""
 # Your CV for this kind of job (put CVs in the cvs/ folder: it is gitignored). A list = the closest is used.
 cv = "cvs/My-CV-Backend.pdf"
-# remote = doable from Pakistan (yes or maybe); move = visa, relocation, or a company on a visa sponsor list
+# remote = remote from anywhere (or place not stated); move = visa, relocation, or a company on a visa sponsor list
 routes = ["remote", "move"]
 regions = []                       # empty = anywhere; e.g. ["Europe", "Middle East"]
 sizes = []                         # empty = any; or ["startup", "scale-up", "large"] (from open roles)
 max_age_days = 15                  # only jobs posted in the last 15 days
+countries = []
 exclude_countries = []             # never show jobs located in these countries, e.g. ["Pakistan"]
 title_any = ["engineer", "developer", "programmer"]     # the title must contain one of these (empty = no check)
 title_none = ["intern", "working student", "werkstudent", "trainee", "principal", "director", "sales", "manager", "frontend", "ios", "android", "ts/sci", "clearance"]
@@ -31,6 +32,7 @@ routes = ["remote", "move"]
 regions = []
 sizes = []
 max_age_days = 15
+countries = []
 exclude_countries = []
 title_any = ["ai", "ml", "machine learning", "llm", "engineer"]
 title_none = ["intern", "working student", "werkstudent", "trainee", "principal", "director", "sales", "phd", "research scientist", "trainer", "audio", "ts/sci", "clearance"]

@@ -1,7 +1,7 @@
 # Job Radar
 
 Finds jobs straight from **6,400+ company career pages** (jobs that often never reach LinkedIn), keeps only the ones
-you can actually take (**remote from Pakistan**, or with **visa sponsorship / relocation**), ranks them for you, and
+you can actually take (**remote from anywhere**, or with **visa sponsorship / relocation**), ranks them for you, and
 helps you apply, with an optional CV tailored to each job.
 
 ```
@@ -71,7 +71,7 @@ uv run python -m job_radar.daily --skip-fetch
 Each tab shows your best matches. Each job card has:
 
 - **Badges:**
-  - ✅ doable from Pakistan / ❔ remote, place not stated
+  - 🌍 remote from anywhere / ❔ remote, place not stated
   - 🛂 visa sponsorship / ⛔ no sponsorship
   - 🧳 relocation support
   - 🏛 the company is on the UK/NL official visa-sponsor list *for this job's country*
@@ -122,8 +122,9 @@ top = 15
 |---|---|
 | `looking_for` | **The most important one.** 2–3 plain sentences about the job you want: the work, the tech, the industry, the level. Jobs are ranked by how close they are in *meaning* |
 | `cv` | Your CV for this kind of job (a list if several fit) |
-| `routes` | `"remote"` = jobs you can do from Pakistan · `"move"` = jobs offering a visa or relocation, or at a licensed sponsor |
-| `regions` | `[]` = anywhere, or e.g. `["Europe", "Middle East", "North America", "Asia"]` |
+| `routes` | `"remote"` = remote jobs open worldwide (or that list Pakistan as allowed) · `"move"` = jobs offering a visa or relocation, or at a licensed sponsor · `"any"` = every job that doesn't refuse sponsorship (use with `countries`) |
+| `regions` | Broad areas: `["Europe", "Middle East", "North America", "Latin America", "Asia", "Africa", "Oceania"]`; `[]` = anywhere |
+| `countries` | Specific countries, e.g. `["Germany", "United Arab Emirates"]`; `[]` = anywhere. Use either one, or both: they combine as **either** ("Europe" + "United Arab Emirates" = jobs in Europe *or* the UAE). Remote-from-anywhere jobs always pass |
 | `sizes` | `[]` = any, or `["startup", "scale-up"]` (by number of open roles: ≤20 / 21–100 / >100) |
 | `max_age_days` | Only jobs posted in the last N days |
 | `exclude_countries` | Never show jobs located there, e.g. `["Pakistan"]` |
@@ -133,11 +134,20 @@ top = 15
 
 Seeing the wrong kind of job? Reword `looking_for`, or add a word from those titles to `title_none`.
 
+**Only certain countries** (e.g. you want to move to Germany): set `countries = ["Germany"]` and add `"any"` to `routes`.
+Most German, UAE and other employers don't mention visas in the post, and the sponsor registers only cover the UK and
+the Netherlands, so `"move"` alone finds very few. Example: 8 .NET jobs with `"move"`, 85 with `"any"`.
+
+**How jobs are ranked:** each job's title and start of the description are compared by meaning to your `looking_for`
+text (an embedding model running on your PC). That gives the **match** number on each card (higher = closer; it's not
+a percentage). Badges add small boosts: 🌍 +0.04, 🛂 +0.03, 🧳 +0.02, 🏛 +0.01. The best `top` jobs are then checked
+by the AI, and any that turn out to be impossible are dropped.
+
 ---
 
 ## How accurate are the badges?
 
-Measured on 65 hand-checked jobs the rules were never tuned on: **"doable from Pakistan" is right 89% of the time and
+Measured on 65 hand-checked jobs the rules were never tuned on: **the remote answer is right 89% of the time and
 visa 100%**, after the AI double-check (83% / 95% without it). That's a small sample, so treat the badges as a strong
 filter, not a guarantee, and read the post.
 

@@ -4,6 +4,7 @@ Run: uv run python -m job_radar.web    then open http://localhost:8766
 Only this PC can open it (it listens on 127.0.0.1). Matches come from the last `match` run.
 """
 import html
+import re
 import sys
 import tomllib
 import webbrowser
@@ -20,7 +21,7 @@ PROMPT = Path("prompts/tailor-cv.md")
 
 PORT = 8766
 STATUSES = ["saved", "applied", "interview", "offer", "rejected", "hidden"]
-LABELS = {"from_pakistan": {"yes": "✅ doable from Pakistan", "maybe": "❔ remote, place not stated"},
+LABELS = {"from_pakistan": {"yes": "✅ remote, Pakistan allowed", "maybe": "❔ remote, place not stated"},
           "visa": {"yes": "🛂 visa sponsorship", "no": "⛔ no visa sponsorship"},
           "relocation": {"yes": "🧳 relocation support"}}
 
@@ -119,9 +120,18 @@ from your CV. Read the result before sending it.</p>
     return page(f"Tailor CV · {title}", body, profiles, "")
 
 
-def badges(answer: dict, sponsor: str) -> str:
+WORLDWIDE = re.compile(r"anywhere|worldwide|world ?wide|global|any country|any location", re.I)
+
+
+def badges(answer: dict, sponsor: str, how: str = "", evidence: str = "") -> str:
     out = []
+    # "Remote from anywhere" only when the post says so (location or description, or the AI quoted it);
+    # a post that lists allowed countries including Pakistan is not "anywhere"
+    worldwide = "anywhere" in how or bool(WORLDWIDE.search(evidence or ""))
     for field, labels in LABELS.items():
+        if field == "from_pakistan" and answer[field] == "yes" and worldwide:
+            out.append('<span class="b good">🌍 remote from anywhere</span>')
+            continue
         if label := labels.get(answer[field]):
             out.append(f'<span class="b {"bad" if answer[field] == "no" else "good"}">{label}</span>')
     if sponsor:
@@ -132,15 +142,18 @@ def badges(answer: dict, sponsor: str) -> str:
 def matches_page(db, profile: str, profiles: list[str]) -> str:
     rows = db.execute("""
         SELECT m.rank, m.job_id, m.matched_on, j.title, j.company, j.location, j.url, j.first_seen, j.closed_on,
-               j.posted_at, COALESCE(c.sponsor_in, ''), COALESCE(c.size, ''), t.status
+               j.posted_at, COALESCE(c.sponsor_in, ''), COALESCE(c.size, ''), t.status, m.similarity, m.score,
+               COALESCE(e.how, '')
         FROM matches m JOIN jobs j ON j.id = m.job_id LEFT JOIN companies c ON c.board = j.board
+        LEFT JOIN eligibility e ON e.job_id = m.job_id
         LEFT JOIN tracker t ON t.job_id = m.job_id
         WHERE m.profile = ? ORDER BY m.rank""", (profile,)).fetchall()
     rows = [r for r in rows if r[12] in (None, "saved")]  # applied/hidden ones are on the tracker page
     answers = check.final_answers(db, [r[1] for r in rows])
     last_fetch, first_fetch = db.execute("SELECT MAX(day), MIN(day) FROM runs").fetchone()
     cards = []
-    for rank, job_id, matched_on, title, company, location, url, first_seen, closed, posted, sponsor, size, status in rows:
+    for (rank, job_id, matched_on, title, company, location, url, first_seen, closed, posted, sponsor, size, status,
+         similarity, score, how) in rows:
         here = sponsor_here(location, sponsor)
         answer = answers[job_id]
         evidence = f'<div class=ev>“{esc(answer["llm"])}”</div>' if answer.get("llm") else ""
@@ -149,8 +162,9 @@ def matches_page(db, profile: str, profiles: list[str]) -> str:
         cards.append(f"""<div class=card id="r{rank}"><div class=title><span class=rank>{rank}.</span>{new}
 <a href="{esc(url)}" target=_blank rel="noopener noreferrer">{esc(title)}</a></div>
 <div class=meta>{esc(company)}{f" · {esc(size)}" if size else ""} · {esc(location) or "location not given"}
-{f" · posted {esc(posted)}" if posted else ""}{" · <span class=closed>closed</span>" if closed else ""}{saved}</div>
-{badges(answer, here)}{evidence}{status_buttons(job_id, status or "", f"/?p={profile}#r{rank + 1}")}</div>""")
+{f" · posted {esc(posted)}" if posted else ""}{" · <span class=closed>closed</span>" if closed else ""}{saved}
+<span title="How close this job is to your looking_for text (cosine similarity), plus small boosts for badges. Used for ranking only, not a percentage."> · match {score:.2f}</span></div>
+{badges(answer, here, how, answer.get('llm') or '')}{evidence}{status_buttons(job_id, status or "", f"/?p={profile}#r{rank + 1}")}</div>""")
     matched_on = rows[0][2] if rows else "never"
     body = (f'<p class=meta>Top matches from the last <code>match</code> run ({esc(matched_on)}). Jobs fetched on '
             f'{esc(last_fetch)}. “Applied” and “Not for me” move a job to the tracker; the next match run fills its place.</p>'
