@@ -1,10 +1,13 @@
 """One fetcher per ATS (applicant tracking system). Each turns that ATS's JSON into the same Job shape."""
 import asyncio
+import hashlib
 import html
+import json
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -186,5 +189,128 @@ async def personio(client: httpx.AsyncClient, slug: str, name: str) -> list[Job]
     return jobs
 
 
+# --- Company career sites without a known ATS: schema.org JobPosting ---------------------------------------
+# Sites that want their jobs in Google search put a JSON block like {"@type": "JobPosting", "title": ...}
+# in each job page (inside <script type="application/ld+json">). It's a public standard, so one reader
+# works for many different career sites.
+
+JOB_LINK = re.compile(r"(?i)job|career|position|vacanc|opening|role|stelle|offre|vagas?|empleo")
+MAX_JOB_PAGES = 100  # per company per run: enough for a startup, and polite to a small company's website
+
+
+def job_postings(page: str) -> list[dict]:
+    """Every JobPosting object in a page's JSON-LD blocks (they can be nested, in lists, or in an @graph)."""
+    found = []
+
+    def walk(node) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, dict):
+            kind = node.get("@type")
+            if kind == "JobPosting" or (isinstance(kind, list) and "JobPosting" in kind):
+                found.append(node)
+            else:
+                for value in node.values():
+                    walk(value)
+
+    decoder = json.JSONDecoder(strict=False)  # strict=False: allow raw newlines inside strings
+    for block in re.findall(r"(?is)<script[^>]*application/ld\+json[^>]*>(.*?)</script>", page):
+        try:
+            walk(decoder.raw_decode(block.strip())[0])  # raw_decode: ignore junk after the JSON, e.g. a stray "};"
+        except ValueError:
+            continue  # one broken block must not hide the others
+    return found
+
+
+def site_of(host: str | None) -> str:
+    """'careers.adyen.com' -> 'adyen.com', 'jobs.acme.co.uk' -> 'acme.co.uk': subdomains are the same company."""
+    labels = (host or "").lower().split(".")
+    keep = 3 if len(labels) > 2 and labels[-2] in ("co", "com", "org", "net", "ac") and len(labels[-1]) == 2 else 2
+    return ".".join(labels[-keep:])
+
+
+def job_links(page: str, page_url: str) -> list[str]:
+    """Links on the same site that look like job pages: /careers/backend-engineer, /jobs/123, ..."""
+    site = site_of(urlparse(page_url).hostname)
+    links = []
+    for href in re.findall(r"""href=["']([^"'#]+)""", page):
+        url = urljoin(page_url, html.unescape(href))
+        parts = urlparse(url)
+        if parts.scheme in ("http", "https") and site_of(parts.hostname) == site and JOB_LINK.search(parts.path) \
+                and url.rstrip("/") != page_url.rstrip("/") \
+                and url not in links and not re.search(r"\.(pdf|jpg|png|svg|css|js)$", parts.path, re.I):
+            links.append(url)
+    return links[:MAX_JOB_PAGES]
+
+
+def first(value) -> dict:
+    """JSON-LD fields can be one object or a list of them."""
+    return (value[0] if value else {}) if isinstance(value, list) else (value or {})
+
+
+def place_name(place: dict) -> str:
+    address = first(place.get("address")) if isinstance(place, dict) else {}
+    if isinstance(address, str):
+        return address
+    country = address.get("addressCountry")
+    country = country.get("name", "") if isinstance(country, dict) else country or ""
+    return ", ".join(p for p in (address.get("addressLocality"), address.get("addressRegion"), country) if p)
+
+
+def posting_to_job(p: dict, careers_url: str, page_url: str, name: str) -> Job | None:
+    if (p.get("validThrough") or "9999")[:10] < datetime.now(timezone.utc).date().isoformat():
+        return None  # the site says this job has closed
+    places = [place_name(x) for x in (p.get("jobLocation") if isinstance(p.get("jobLocation"), list)
+                                      else [p.get("jobLocation") or {}])]
+    remote = "TELECOMMUTE" in str(p.get("jobLocationType", "")).upper()
+    allowed = [x.get("name", "") if isinstance(x, dict) else str(x)
+               for x in (p.get("applicantLocationRequirements") or [])] \
+        if isinstance(p.get("applicantLocationRequirements"), list) \
+        else [first(p.get("applicantLocationRequirements")).get("name", "")]
+    location = " / ".join(x for x in places if x)
+    if remote and any(allowed):
+        location = f"{location} / Remote: {', '.join(a for a in allowed if a)}".strip(" /")
+    pay = first(p.get("baseSalary"))
+    amount = first(pay.get("value")) if isinstance(pay.get("value"), (dict, list)) else {"value": pay.get("value")}
+    low, high = amount.get("minValue") or amount.get("value"), amount.get("maxValue")
+    url = p.get("url") or page_url
+    return Job(
+        id=f"jsonld:{careers_url}:{hashlib.md5(url.encode()).hexdigest()[:12]}", source="jsonld",
+        company=first(p.get("hiringOrganization")).get("name") or name,
+        title=to_text(p.get("title", "")), location=location, workplace="remote" if remote else "",
+        department="", url=url, description=to_text(p.get("description", "")),
+        posted_at=str(p.get("datePosted") or "")[:10],
+        salary=f"{low}-{high} {pay.get('currency', '')} {amount.get('unitText', '')}".strip() if high
+               else f"{low} {pay.get('currency', '')} {amount.get('unitText', '')}".strip() if low else "",
+    )
+
+
+async def jsonld(client: httpx.AsyncClient, careers_url: str, name: str) -> list[Job]:
+    """For a career site with no supported ATS: read JobPosting data from the careers page itself, then
+    from the job pages it links to. Here the "slug" is the careers page URL."""
+    r = await get(client, careers_url)
+    found = [(p, str(r.url)) for p in job_postings(r.text)]
+    if not found:
+        limit = asyncio.Semaphore(4)  # a company's own website is small: few requests at once
+
+        async def read(url: str) -> list[tuple[dict, str]]:
+            async with limit:
+                try:
+                    return [(p, url) for p in job_postings((await get(client, url)).text)]
+                except httpx.HTTPError:
+                    return []  # one broken job page must not lose the others
+
+        for postings in await asyncio.gather(*(read(url) for url in job_links(r.text, str(r.url)))):
+            found += postings
+    jobs = {}
+    for posting, page_url in found:
+        job = posting_to_job(posting, careers_url, page_url, name)
+        if job and job.title:
+            jobs[job.id] = job  # the same job can be on the list page and on its own page
+    return list(jobs.values())
+
+
 FETCHERS = {"greenhouse": greenhouse, "lever": lever, "lever_eu": lever_eu, "ashby": ashby,
-            "workable": workable, "smartrecruiters": smartrecruiters, "recruitee": recruitee, "personio": personio}
+            "workable": workable, "smartrecruiters": smartrecruiters, "recruitee": recruitee, "personio": personio,
+            "jsonld": jsonld}
