@@ -58,6 +58,7 @@ def candidates(db, profile: dict) -> list[tuple]:
     none_words = [w.lower() for w in profile.get("title_none", [])]
 
     wanted = profile.get("routes", list(ROUTES))
+    sizes = set(profile.get("sizes", []))
 
     def keep(row) -> bool:
         title = f" {row[1].lower()} "
@@ -69,6 +70,8 @@ def candidates(db, profile: dict) -> list[tuple]:
         # A UK sponsor licence helps only for a job IN the UK: Renesas is on the UK list, its Poland jobs aren't
         move = "move" in wanted and row[8] != "no" and (row[8] == "yes" or row[9] == "yes" or row[13])
         if not (remote or move):
+            return False
+        if sizes and row[12] not in sizes:  # e.g. ["startup", "scale-up"]
             return False
         # remote-from-Pakistan jobs pass any region filter: where the company is doesn't matter then
         return not regions or row[7] == "yes" or bool(regions & set(filter(None, row[10].split(","))))

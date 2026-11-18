@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from job-radar!")
+"""Job Radar: find hidden jobs on company career pages and rank them for your profile."""

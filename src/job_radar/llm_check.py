@@ -13,6 +13,7 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+load_dotenv()  # before reading settings: JOB_RADAR_MODEL can be set in .env
 MODEL = os.getenv("JOB_RADAR_MODEL", "gemini-3.5-flash-lite")  # cheapest/fastest; 2.5 was retired for new users
 REQUESTS_PER_MINUTE = 15  # free tier limit: stay under it instead of hitting 429s
 
