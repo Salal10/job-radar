@@ -23,8 +23,8 @@ from_pakistan: can a person living in Pakistan do this job WITHOUT relocating?
           a time zone range that includes UTC+5)
   no    = not remote (onsite or hybrid outside Pakistan), or remote but limited to places that exclude Pakistan
   maybe = remote but the text doesn't say where, or names a region that may or may not include Pakistan
-visa: yes = the post offers visa sponsorship; no = it says it won't sponsor or candidates must already have
-  the right to work; unknown = not mentioned or unclear
+visa: yes = the post offers visa sponsorship; no = it says it won't sponsor, or candidates must already have
+  the right to work, or it only considers people already living in that country; unknown = not mentioned or unclear
 relocation: yes = the post offers relocation support; unknown = not mentioned
 evidence: the decisive words, quoted, max 15 words (or "nothing stated")
 Be literal: do not assume what is typical for this company or country."""
@@ -57,7 +57,9 @@ def ask(gemini, title: str, location: str, workplace: str, excerpts: str) -> tup
                 config=types.GenerateContentConfig(system_instruction=PROMPT, temperature=0,
                                                    response_mime_type="application/json", response_schema=Answer))
         except errors.APIError as e:
-            if e.code in (429, 503) and attempt < 2:  # rate limit / "high demand": both pass if you wait
+            if "quota" in str(e).lower() and "per day" in str(e).lower() or "check your plan" in str(e).lower():
+                return None, {"error": "daily quota used up: try again tomorrow", "daily_quota": True}
+            if e.code in (429, 503) and attempt < 2:  # per-minute limit / "high demand": both pass if you wait
                 time.sleep(30 * (attempt + 1))
                 continue
             return None, {"error": str(e)[:200]}

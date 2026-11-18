@@ -73,7 +73,9 @@ def save(db: sqlite3.Connection, jobs: list[Job], today: str) -> tuple[int, int]
                                  :url, :description, :posted_at, :salary, :today, :today, NULL)
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title, location = excluded.location, workplace = excluded.workplace,
-            department = excluded.department, url = excluded.url, description = excluded.description,
+            department = excluded.department, url = excluded.url,
+            -- SmartRecruiters lists have no description; keep the one fetched separately for a match
+            description = CASE WHEN excluded.description = '' THEN jobs.description ELSE excluded.description END,
             salary = excluded.salary, last_seen = excluded.last_seen,
             closed_on = NULL""",  # back on the board: a job can be unpublished for a day and come back
         [asdict(job) | {"board": job.id.rsplit(":", 1)[0], "today": today} for job in jobs])

@@ -1,0 +1,24 @@
+# Copy to profiles.toml (gitignored: your real profile stays on your PC) and edit.
+# Each [[profile]] is one search. Run: uv run python -m job_radar.match
+
+[[profile]]
+name = "backend"
+# What you want, in plain words. This is turned into an embedding (on your PC) and compared to each job.
+looking_for = """Backend software engineer building APIs and services in C# / .NET or Python,
+payments or fintech, cloud (Azure or AWS), SQL databases."""
+# remote = doable from Pakistan (yes or maybe); move = visa, relocation, or a company on a visa sponsor list
+routes = ["remote", "move"]
+regions = []                       # empty = anywhere; e.g. ["Europe", "Middle East"]
+title_any = ["engineer", "developer", "programmer"]     # the title must contain one of these (empty = no check)
+title_none = ["intern", "working student", "werkstudent", "trainee", "principal", "director", "sales", "manager", "frontend", "ios", "android", "ts/sci", "clearance"]
+top = 25                           # how many to show
+
+[[profile]]
+name = "ai-engineer"
+looking_for = """AI / LLM engineer: building applications with large language models, RAG, embeddings,
+evaluation, Python, APIs. Junior to mid level."""
+routes = ["remote", "move"]
+regions = []
+title_any = ["ai", "ml", "machine learning", "llm", "engineer"]
+title_none = ["intern", "working student", "werkstudent", "trainee", "principal", "director", "sales", "phd", "research scientist", "trainer", "audio", "ts/sci", "clearance"]
+top = 25

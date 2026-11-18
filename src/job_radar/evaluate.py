@@ -211,9 +211,13 @@ def score() -> None:
     answers = {}
     if LLM_ANSWERS.exists():
         answers = {r["job_id"]: r["answer"] for r in map(json.loads, open(LLM_ANSWERS, encoding="utf-8")) if "answer" in r}
-    if not all(j in answers for j in labels):
-        print("(LLM answers missing for some jobs: run 'evaluate llm' to compare)")
+    if not answers:
+        print("(No LLM answers yet: run 'evaluate llm' to compare)")
         return
+    if missing := [j for j in labels if j not in answers]:  # e.g. the daily quota ran out: compare on the rest
+        print(f"(LLM answers missing for {len(missing)} jobs: all setups below are scored without them)\n")
+        labels = {j: labels[j] for j in labels if j in answers}
+        report("Rules only, same jobs", rules, labels)
     report("LLM only", {j: answers[j] | {"how": "llm"} for j in labels}, labels)
     hybrid = {}
     for j in labels:  # the rules' clear answers stand; only jobs they call "maybe" go to the LLM
@@ -223,6 +227,9 @@ def score() -> None:
                 if rules[j][field] == unclear:
                     hybrid[j][field] = answers[j][field]
     report("Rules first, LLM only for 'maybe' jobs", hybrid, labels)
+    from job_radar.check import combine
+    report("Top matches: rules + LLM combined (check.combine)",
+           {j: combine(rules[j], answers[j]) | {"how": rules[j]["how"]} for j in labels}, labels)
     sent = sum(rules[j]["from_pakistan"] == "maybe" for j in labels)
     print(f"The hybrid sends {sent} of {len(labels)} sampled jobs to the LLM (the sample over-represents "
           f"'maybe' jobs; on all open jobs it's about 2.5%).")
