@@ -12,3 +12,6 @@ data/
 .env    
 # Personal search profiles
 profiles.toml
+
+# Local editor/tool settings
+.claude/

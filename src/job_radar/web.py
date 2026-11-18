@@ -1,0 +1,185 @@
+"""Local web page: your matches per profile, with links to the original posts, and a job tracker.
+
+Run: uv run python -m job_radar.web    then open http://localhost:8766
+Only this PC can open it (it listens on 127.0.0.1). Matches come from the last `match` run.
+"""
+import html
+import sys
+import webbrowser
+from datetime import date
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlencode, urlparse
+
+from job_radar import check, store
+from job_radar.match import sponsor_here
+
+PORT = 8766
+STATUSES = ["saved", "applied", "interview", "offer", "rejected", "hidden"]
+LABELS = {"from_pakistan": {"yes": "✅ doable from Pakistan", "maybe": "❔ remote, place not stated"},
+          "visa": {"yes": "🛂 visa sponsorship", "no": "⛔ no visa sponsorship"},
+          "relocation": {"yes": "🧳 relocation support"}}
+
+CSS = """
+:root{--bg:#f6f6f4;--card:#fff;--text:#1f1f1f;--muted:#6b6b6b;--line:#ddd;--accent:#0b62c4;--good:#1d7a46;--bad:#a33}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--card:#202020;--text:#eee;--muted:#a0a0a0;--line:#333;
+ --accent:#6aa8ff;--good:#5fc48a;--bad:#e57373}}
+*{box-sizing:border-box}body{font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--text);margin:0}
+main{max-width:980px;margin:auto;padding:16px}a{color:var(--accent)}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 16px}nav a{padding:6px 12px;border:1px solid var(--line);
+ border-radius:999px;text-decoration:none;color:var(--text)}nav a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.meta{color:var(--muted);font-size:13px}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+ padding:12px 14px;margin:10px 0}.title{font-weight:600;font-size:16px}.rank{color:var(--muted);margin-right:6px}
+.badges{margin:6px 0;display:flex;gap:6px;flex-wrap:wrap}.b{font-size:12px;padding:2px 8px;border-radius:999px;
+ border:1px solid var(--line)}.b.good{color:var(--good);border-color:var(--good)}.b.bad{color:var(--bad);border-color:var(--bad)}
+.ev{font-size:13px;color:var(--muted);font-style:italic}form.inline{display:inline}button,select,input{font:inherit;
+ padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer}
+button:hover{border-color:var(--accent)}.actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+input[name=note]{min-width:220px;flex:1}.new{color:var(--good);font-weight:600;font-size:12px}
+h2{margin:24px 0 4px;font-size:17px;text-transform:capitalize}.closed{color:var(--bad);font-size:12px}
+@media (max-width:600px){input[name=note]{min-width:0;width:100%}}
+"""
+
+
+def esc(value) -> str:
+    return html.escape(str(value or ""))
+
+
+def page(title: str, body: str, profiles: list[str], current: str) -> str:
+    tabs = "".join(f'<a href="/?{urlencode({"p": p})}" class="{"on" if p == current else ""}">{esc(p)}</a>'
+                   for p in profiles)
+    tabs += f'<a href="/tracker" class="{"on" if current == "tracker" else ""}">Tracker</a>'
+    return f"""<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>{esc(title)} · Job Radar</title><style>{CSS}</style><main><h1>Job Radar</h1><nav>{tabs}</nav>{body}</main></html>"""
+
+
+def status_buttons(job_id: str, current: str, back: str, note: str = "", with_note: bool = False) -> str:
+    hidden = f'<input type=hidden name=job_id value="{esc(job_id)}"><input type=hidden name=back value="{esc(back)}">'
+    if with_note:  # tracker page: pick any status + a note
+        options = "".join(f'<option {"selected" if s == current else ""}>{s}</option>' for s in STATUSES)
+        return (f'<form method=post action=/status class=actions>{hidden}<select name=status>{options}</select>'
+                f'<input name=note value="{esc(note)}" placeholder="note: who you talked to, next step..."><button>Save</button></form>')
+    buttons = "".join(f'<button name=status value={s}>{label}</button>'
+                      for s, label in (("saved", "☆ Save"), ("applied", "✉ Applied"), ("hidden", "✕ Not for me")))
+    return f'<form method=post action=/status class=actions>{hidden}{buttons}</form>'
+
+
+def badges(answer: dict, sponsor: str) -> str:
+    out = []
+    for field, labels in LABELS.items():
+        if label := labels.get(answer[field]):
+            out.append(f'<span class="b {"bad" if answer[field] == "no" else "good"}">{label}</span>')
+    if sponsor:
+        out.append(f'<span class="b good">🏛 on the {esc(sponsor)} visa sponsor list</span>')
+    return f'<div class=badges>{"".join(out)}</div>'
+
+
+def matches_page(db, profile: str, profiles: list[str]) -> str:
+    rows = db.execute("""
+        SELECT m.rank, m.job_id, m.matched_on, j.title, j.company, j.location, j.url, j.first_seen, j.closed_on,
+               j.posted_at, COALESCE(c.sponsor_in, ''), COALESCE(c.size, ''), t.status
+        FROM matches m JOIN jobs j ON j.id = m.job_id LEFT JOIN companies c ON c.board = j.board
+        LEFT JOIN tracker t ON t.job_id = m.job_id
+        WHERE m.profile = ? ORDER BY m.rank""", (profile,)).fetchall()
+    rows = [r for r in rows if r[12] in (None, "saved")]  # applied/hidden ones are on the tracker page
+    answers = check.final_answers(db, [r[1] for r in rows])
+    last_fetch, first_fetch = db.execute("SELECT MAX(day), MIN(day) FROM runs").fetchone()
+    cards = []
+    for rank, job_id, matched_on, title, company, location, url, first_seen, closed, posted, sponsor, size, status in rows:
+        here = sponsor_here(location, sponsor)
+        answer = answers[job_id]
+        evidence = f'<div class=ev>“{esc(answer["llm"])}”</div>' if answer.get("llm") else ""
+        new = '<span class=new>NEW </span>' if first_seen == last_fetch != first_fetch else ""  # on the first run everything is "new"
+        saved = " ★ saved" if status == "saved" else ""
+        cards.append(f"""<div class=card id="r{rank}"><div class=title><span class=rank>{rank}.</span>{new}
+<a href="{esc(url)}" target=_blank rel="noopener noreferrer">{esc(title)}</a></div>
+<div class=meta>{esc(company)}{f" · {esc(size)}" if size else ""} · {esc(location) or "location not given"}
+{f" · posted {esc(posted)}" if posted else ""}{" · <span class=closed>closed</span>" if closed else ""}{saved}</div>
+{badges(answer, here)}{evidence}{status_buttons(job_id, status or "", f"/?p={profile}#r{rank + 1}")}</div>""")
+    matched_on = rows[0][2] if rows else "never"
+    body = (f'<p class=meta>Top matches from the last <code>match</code> run ({esc(matched_on)}). Jobs fetched on '
+            f'{esc(last_fetch)}. “Applied” and “Not for me” move a job to the tracker; the next match run fills its place.</p>'
+            + ("".join(cards) or "<p>No matches yet: run <code>uv run python -m job_radar.match</code>.</p>"))
+    return page(profile, body, profiles, profile)
+
+
+def tracker_page(db, profiles: list[str]) -> str:
+    rows = db.execute("""SELECT t.job_id, t.status, t.note, t.title, t.company, t.url, t.updated_on, j.closed_on, j.id
+                         FROM tracker t LEFT JOIN jobs j ON j.id = t.job_id ORDER BY t.updated_on DESC""").fetchall()
+    sections = []
+    for status in STATUSES:
+        group = [r for r in rows if r[1] == status]
+        if not group:
+            continue
+        cards = "".join(f"""<div class=card><div class=title><a href="{esc(url)}" target=_blank rel="noopener noreferrer">
+{esc(title)}</a></div><div class=meta>{esc(company)} · updated {esc(updated)}
+{" · <span class=closed>closed on the board</span>" if closed or not still_there else ""}</div>
+{status_buttons(job_id, status, "/tracker", note, with_note=True)}</div>"""
+                        for job_id, _, note, title, company, url, updated, closed, still_there in group)
+        sections.append(f"<h2>{status} ({len(group)})</h2>{cards}")
+    body = "".join(sections) or "<p>Nothing tracked yet. Use ☆ Save / ✉ Applied on a match.</p>"
+    return page("Tracker", body, profiles, "tracker")
+
+
+def set_status(db, job_id: str, status: str, note: str | None) -> None:
+    if status not in STATUSES:
+        return
+    job = db.execute("SELECT title, company, url FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    old = db.execute("SELECT note, title, company, url FROM tracker WHERE job_id = ?", (job_id,)).fetchone()
+    if not job and not old:
+        return
+    title, company, url = job or old[1:]
+    note = note if note is not None else (old[0] if old else "")
+    db.execute("INSERT OR REPLACE INTO tracker VALUES (?, ?, ?, ?, ?, ?, ?)",
+               (job_id, status, note, title, company, url, date.today().isoformat()))
+    db.commit()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        db = store.connect()
+        db.executescript(check.SCHEMA + ";")
+        url = urlparse(self.path)
+        profiles = [p for p, in db.execute("SELECT DISTINCT profile FROM matches ORDER BY profile")]
+        if url.path == "/tracker":
+            return self.reply(tracker_page(db, profiles))
+        if url.path != "/":
+            return self.send_error(404)
+        profile = parse_qs(url.query).get("p", [profiles[0] if profiles else ""])[0]
+        self.reply(matches_page(db, profile, profiles))
+
+    def do_POST(self):
+        # Only this page may change your tracker: another website can't post here from your browser
+        origin = self.headers.get("Origin", "")
+        if origin and urlparse(origin).hostname not in ("localhost", "127.0.0.1"):
+            return self.send_error(403)
+        if urlparse(self.path).path != "/status":
+            return self.send_error(404)
+        form = {k: v[0] for k, v in parse_qs(self.rfile.read(int(self.headers["Content-Length"])).decode(),
+                                              keep_blank_values=True).items()}
+        set_status(store.connect(), form.get("job_id", ""), form.get("status", ""), form.get("note"))
+        back = form.get("back", "/")
+        self.send_response(303)
+        self.send_header("Location", back if back.startswith("/") else "/")  # never redirect off this site
+        self.end_headers()
+
+    def reply(self, body: str):
+        data = body.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
+
+
+def main() -> None:
+    print(f"Job Radar: http://localhost:{PORT}  (Ctrl+C to stop)")
+    if "--no-browser" not in sys.argv:
+        webbrowser.open(f"http://localhost:{PORT}")
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -49,7 +49,9 @@ def candidates(db, profile: dict) -> list[tuple]:
     sql = f"""SELECT j.id, j.title, j.department, j.description, j.company, j.location, j.url,
                      e.from_pakistan, e.visa, e.relocation, e.regions, COALESCE(c.sponsor_in, ''), COALESCE(c.size, '')
               FROM jobs j JOIN eligibility e ON e.job_id = j.id LEFT JOIN companies c ON c.board = j.board
-              WHERE j.closed_on IS NULL AND ({routes})"""
+              WHERE j.closed_on IS NULL AND ({routes})
+                AND j.id NOT IN (SELECT job_id FROM tracker WHERE status != 'saved')"""
+    # applied / rejected / hidden jobs leave the match list (they live on the tracker page), so it refills
     rows = db.execute(sql).fetchall()
     regions = set(profile.get("regions", []))
     any_words = [w.lower() for w in profile.get("title_any", [])]
@@ -78,9 +80,14 @@ SPONSOR_COUNTRY = {"UK": "United Kingdom", "NL": "Netherlands"}
 
 def with_sponsor_here(row: tuple) -> tuple:
     """Adds row[13]: the sponsor list that covers THIS job's country ("UK"), or ""."""
-    lists = [code for code in row[11].split(",") if code]
-    here = places.countries_in(row[5] or "") if lists else set()
-    return (*row, ",".join(code for code in lists if SPONSOR_COUNTRY[code] in here))
+    return (*row, sponsor_here(row[5], row[11]))
+
+
+def sponsor_here(location: str, sponsor_in: str) -> str:
+    """'London' + 'NL,UK' -> 'UK': only the list for the job's own country counts."""
+    lists = [code for code in (sponsor_in or "").split(",") if code]
+    here = places.countries_in(location or "") if lists else set()
+    return ",".join(code for code in lists if SPONSOR_COUNTRY[code] in here)
 
 
 def word_in(word: str, title: str) -> bool:

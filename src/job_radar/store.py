@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS companies (
 CREATE TABLE IF NOT EXISTS runs (   -- one row per daily run: is the tool healthy over time?
     day TEXT, seconds REAL, companies INTEGER, failed INTEGER,
     open_jobs INTEGER, new INTEGER, closed INTEGER, reopened INTEGER, deleted INTEGER
+);
+CREATE TABLE IF NOT EXISTS tracker (    -- your decisions about jobs. Never pruned: it's your history
+    job_id TEXT PRIMARY KEY,
+    status TEXT,                -- saved / applied / interview / offer / rejected / hidden
+    note TEXT,
+    title TEXT, company TEXT, url TEXT,   -- a copy: the job row is deleted 30 days after it closes
+    updated_on TEXT
 );"""
 
 
