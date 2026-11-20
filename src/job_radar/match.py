@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from job_radar import check, places, store
+from job_radar.sponsors import COUNTRY, HISTORY, LICENCES
 
 PROFILES = Path("profiles.toml")
 MODEL = "BAAI/bge-small-en-v1.5"  # small (130 MB), English, runs on CPU; 384 numbers per text
@@ -107,19 +108,26 @@ def country_names(profile: dict, key: str) -> set[str]:
     return names
 
 
-SPONSOR_COUNTRY = {"UK": "United Kingdom", "NL": "Netherlands"}
-
-
 def with_sponsor_here(row: tuple) -> tuple:
-    """Adds row[13]: the sponsor list that covers THIS job's country ("UK"), or ""."""
+    """Adds row[13]: the sponsor licence list that covers THIS job's country ("UK"), or ""."""
     return (*row, sponsor_here(row[5], row[11]))
 
 
-def sponsor_here(location: str, sponsor_in: str) -> str:
+def lists_here(location: str, sponsor_in: str, kinds: set[str]) -> str:
     """'London' + 'NL,UK' -> 'UK': only the list for the job's own country counts."""
-    lists = [code for code in (sponsor_in or "").split(",") if code]
+    lists = [code for code in (sponsor_in or "").split(",") if code in kinds]
     here = places.countries_in(location or "") if lists else set()
-    return ",".join(code for code in lists if SPONSOR_COUNTRY[code] in here)
+    return ",".join(code for code in lists if COUNTRY[code] in here)
+
+
+def sponsor_here(location: str, sponsor_in: str) -> str:
+    """Licence lists (UK, NL, DK) for this job's country: these count for the "move" route."""
+    return lists_here(location, sponsor_in, LICENCES)
+
+
+def hired_here(location: str, sponsor_in: str) -> str:
+    """Hiring-history lists (IE, CA, US) for this job's country: a bonus badge only, never a filter."""
+    return lists_here(location, sponsor_in, HISTORY)
 
 
 def word_in(word: str, title: str) -> bool:
