@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from job_radar import check, store
 from job_radar.job import profile_cvs
-from job_radar.match import PROFILES, sponsor_here
+from job_radar.match import PROFILES, hired_here, sponsor_here
 
 PROMPT = Path("prompts/tailor-cv.md")
 
@@ -164,7 +164,7 @@ def matches_page(db, profile: str, profiles: list[str]) -> str:
 <div class=meta>{esc(company)}{f" · {esc(size)}" if size else ""} · {esc(location) or "location not given"}
 {f" · posted {esc(posted)}" if posted else ""}{" · <span class=closed>closed</span>" if closed else ""}{saved}
 <span title="How close this job is to your looking_for text (cosine similarity), plus small boosts for badges. Used for ranking only, not a percentage."> · match {score:.2f}</span></div>
-{badges(answer, here, how, answer.get('llm') or '')}{evidence}{status_buttons(job_id, status or "", f"/?p={profile}#r{rank + 1}")}</div>""")
+{badges(answer, here, how, answer.get('llm') or '')}{f'<div class=badges><span class=b title="Official data: this company hired foreign workers in this country recently. A bonus signal, not a promise.">🧭 hired foreign workers in {esc(hired)} recently</span></div>' if (hired := hired_here(location, sponsor)) else ''}{evidence}{status_buttons(job_id, status or "", f"/?p={profile}#r{rank + 1}")}</div>""")
     matched_on = rows[0][2] if rows else "never"
     body = (f'<p class=meta>Top matches from the last <code>match</code> run ({esc(matched_on)}). Jobs fetched on '
             f'{esc(last_fetch)}. “Applied” and “Not for me” move a job to the tracker; the next match run fills its place.</p>'
