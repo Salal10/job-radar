@@ -139,7 +139,10 @@ def badges(answer: dict, sponsor: str, how: str = "", evidence: str = "") -> str
     return f'<div class=badges>{"".join(out)}</div>'
 
 
-def matches_page(db, profile: str, profiles: list[str]) -> str:
+SORTS = {"match": "best match", "date": "newest first"}
+
+
+def matches_page(db, profile: str, profiles: list[str], sort: str = "match") -> str:
     rows = db.execute("""
         SELECT m.rank, m.job_id, m.matched_on, j.title, j.company, j.location, j.url, j.first_seen, j.closed_on,
                j.posted_at, COALESCE(c.sponsor_in, ''), COALESCE(c.size, ''), t.status, m.similarity, m.score,
@@ -149,11 +152,18 @@ def matches_page(db, profile: str, profiles: list[str]) -> str:
         LEFT JOIN tracker t ON t.job_id = m.job_id
         WHERE m.profile = ? ORDER BY m.rank""", (profile,)).fetchall()
     rows = [r for r in rows if r[12] in (None, "saved")]  # applied/hidden ones are on the tracker page
+    if sort == "date":  # newest post first; no posted date -> the day we first saw it. Ties keep the match order.
+        rows.sort(key=lambda r: r[9] or r[7] or "", reverse=True)
+    else:
+        sort = "match"
     answers = check.final_answers(db, [r[1] for r in rows])
     last_fetch, first_fetch = db.execute("SELECT MAX(day), MIN(day) FROM runs").fetchone()
     cards = []
-    for (rank, job_id, matched_on, title, company, location, url, first_seen, closed, posted, sponsor, size, status,
-         similarity, score, how) in rows:
+    for i, (rank, job_id, matched_on, title, company, location, url, first_seen, closed, posted, sponsor, size, status,
+            similarity, score, how) in enumerate(rows):
+        # after a button, come back to the same sort, scrolled to the card that was below this one
+        below = f"#r{rows[i + 1][0]}" if i + 1 < len(rows) else ""
+        back = f"/?{urlencode({'p': profile, 'sort': sort})}{below}"
         here = sponsor_here(location, sponsor)
         answer = answers[job_id]
         evidence = f'<div class=ev>“{esc(answer["llm"])}”</div>' if answer.get("llm") else ""
@@ -164,10 +174,12 @@ def matches_page(db, profile: str, profiles: list[str]) -> str:
 <div class=meta>{esc(company)}{f" · {esc(size)}" if size else ""} · {esc(location) or "location not given"}
 {f" · posted {esc(posted)}" if posted else ""}{" · <span class=closed>closed</span>" if closed else ""}{saved}
 <span title="How close this job is to your looking_for text (cosine similarity), plus small boosts for badges. Used for ranking only, not a percentage."> · match {score:.2f}</span></div>
-{badges(answer, here, how, answer.get('llm') or '')}{f'<div class=badges><span class=b title="Official data: this company hired foreign workers in this country recently. A bonus signal, not a promise.">🧭 hired foreign workers in {esc(hired)} recently</span></div>' if (hired := hired_here(location, sponsor)) else ''}{evidence}{status_buttons(job_id, status or "", f"/?p={profile}#r{rank + 1}")}</div>""")
+{badges(answer, here, how, answer.get('llm') or '')}{f'<div class=badges><span class=b title="Official data: this company hired foreign workers in this country recently. A bonus signal, not a promise.">🧭 hired foreign workers in {esc(hired)} recently</span></div>' if (hired := hired_here(location, sponsor)) else ''}{evidence}{status_buttons(job_id, status or "", back)}</div>""")
     matched_on = rows[0][2] if rows else "never"
     body = (f'<p class=meta>Top matches from the last <code>match</code> run ({esc(matched_on)}). Jobs fetched on '
             f'{esc(last_fetch)}. “Applied” and “Not for me” move a job to the tracker; the next match run fills its place.</p>'
+            + '<nav>Sort: ' + "".join(f'<a href="/?{urlencode({"p": profile, "sort": key})}" class="{"on" if key == sort else ""}">'
+                                      f'{label}</a>' for key, label in SORTS.items()) + '</nav>'
             + ("".join(cards) or "<p>No matches yet: run <code>uv run python -m job_radar.match</code>.</p>"))
     return page(profile, body, profiles, profile)
 
@@ -217,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
         if url.path != "/":
             return self.send_error(404)
         profile = parse_qs(url.query).get("p", [profiles[0] if profiles else ""])[0]
-        self.reply(matches_page(db, profile, profiles))
+        self.reply(matches_page(db, profile, profiles, parse_qs(url.query).get("sort", ["match"])[0]))
 
     def do_POST(self):
         # Only this page may change your tracker: another website can't post here from your browser
