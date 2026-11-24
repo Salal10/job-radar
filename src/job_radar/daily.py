@@ -7,7 +7,7 @@ Then open the page: uv run python -m job_radar.web
 import sys
 import time
 
-from job_radar import eligibility, fetch, match
+from job_radar import eligibility, fetch, match, students
 
 
 def step(name: str, run) -> None:
@@ -22,6 +22,8 @@ def main() -> None:
         step("1/3 Fetch jobs from all companies", fetch.main)
         step("2/3 Check eligibility (Pakistan / visa / relocation)", eligibility.main)
     step("3/3 Rank jobs for your profiles", match.main)
+    if "--skip-fetch" not in sys.argv and students.config()["enabled"]:
+        step("+ Working-student jobs in Germany", students.main)
     print("\nDone. Open your matches:  uv run python -m job_radar.web")
 
 

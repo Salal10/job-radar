@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from job_radar import check, store
+from job_radar import check, store, students
 from job_radar.job import profile_cvs
 from job_radar.match import PROFILES, hired_here, sponsor_here
 
@@ -54,6 +54,8 @@ def esc(value) -> str:
 def page(title: str, body: str, profiles: list[str], current: str) -> str:
     tabs = "".join(f'<a href="/?{urlencode({"p": p})}" class="{"on" if p == current else ""}">{esc(p)}</a>'
                    for p in profiles)
+    if students.config()["enabled"]:
+        tabs += f'<a href="/students" class="{"on" if current == "students" else ""}">Working student</a>'
     tabs += f'<a href="/tracker" class="{"on" if current == "tracker" else ""}">Tracker</a>'
     return f"""<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>{esc(title)} · Job Radar</title><style>{CSS}</style><main><h1>Job Radar</h1><nav>{tabs}</nav>{body}</main>
@@ -87,6 +89,8 @@ def status_buttons(job_id: str, current: str, back: str, note: str = "", with_no
 def tailor_page(db, job_id: str, profiles: list[str]) -> str:
     """One job: apply directly, or tailor a CV with the prompt in prompts/tailor-cv.md (any AI chat or Claude Code)."""
     row = db.execute("SELECT title, company, location, url, description FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    row = row or db.execute("SELECT title, company, location, url, description FROM student_jobs WHERE id = ?",
+                            (job_id,)).fetchone()
     if not row:
         return page("Not found", "<p>This job is no longer in the database.</p>", profiles, "")
     title, company, location, url, description = row
@@ -184,9 +188,74 @@ def matches_page(db, profile: str, profiles: list[str], sort: str = "match") -> 
     return page(profile, body, profiles, profile)
 
 
+LANGS = {"en": ('good', "🇬🇧 English OK"), "de-required": ('bad', "🇩🇪 German required"),
+         "de-ad": ('', "🇩🇪 ad in German"), "": ('', "❔ language not known")}
+SOURCES = {"arbeitsagentur": "Bundesagentur für Arbeit", "arbeitnow": "Arbeitnow"}  # others: the company's own page
+# Boards without a free API: a ready-made search, opened in your browser
+SEARCHES = [("LinkedIn", "https://www.linkedin.com/jobs/search/?" + urlencode(
+                {"keywords": 'Werkstudent OR "working student" OR Praktikum OR internship', "location": "Germany",
+                 "f_TPR": "r432000"})),  # posted in the last 5 days (in seconds)
+            ("Indeed", "https://de.indeed.com/jobs?" + urlencode(
+                {"q": 'Werkstudent OR "working student" OR Praktikum', "l": "Deutschland", "fromage": 7, "sort": "date"})),
+            ("StepStone", "https://www.stepstone.de/jobs/werkstudent?" + urlencode({"sort": 2})),
+            ("englishjobs.de", "https://englishjobs.de/jobs/student")]
+
+
+WORKPLACES = {"remote": ('good', "🏠 remote"), "hybrid": ('good', "🔀 hybrid (some home office)"),
+              "onsite": ('', "🏢 on-site"), "": ('', "❔ remote not stated")}
+
+
+def students_page(db, profiles: list[str], lang: str = "", where: str = "") -> str:
+    settings = students.config()
+    students.ensure_table(db)
+    rows = db.execute("""SELECT s.id, s.source, s.company, s.title, s.location, s.url, s.posted_at, s.lang, s.seen_on,
+                                t.status, s.remote FROM student_jobs s LEFT JOIN tracker t ON t.job_id = s.id
+                         ORDER BY s.posted_at DESC, s.title""").fetchall()
+    avoid = [w.lower() for w in settings["avoid"]]
+    rows = [r for r in rows if r[9] in (None, "saved") and not any(w in r[3].lower() for w in avoid)]
+    # Two filters that combine: language (all / English OK) and place (all / remote or hybrid / remote only)
+    by_lang = {"": rows, "en": [r for r in rows if r[7] == "en"]}
+    lang = lang if lang in by_lang else ""
+    places = {"": lambda r: True, "home": lambda r: r[10] in ("remote", "hybrid"), "remote": lambda r: r[10] == "remote"}
+    where = where if where in places else ""
+    rows = [r for r in by_lang[lang] if places[where](r)]
+    shown = rows[:settings["top"]]
+    cards = []
+    for i, (job_id, source, company, title, location, url, posted, code, seen, status, remote) in enumerate(shown):
+        below = f"#s{i + 1}" if i + 1 < len(shown) else ""
+        kind, label = LANGS.get(code, LANGS[""])
+        place_kind, place_label = WORKPLACES.get(remote or "", WORKPLACES[""])
+        via = SOURCES.get(source, "company site")
+        cards.append(f"""<div class=card id="s{i}"><div class=title><a href="{esc(url)}" target=_blank
+rel="noopener noreferrer">{esc(students.clean_title(title))}</a></div>
+<div class=meta>{esc(company)} · {esc(location) or "Germany"} · posted {esc(posted)} · via {esc(via)}{" · ★ saved" if status else ""}</div>
+<div class=badges><span class="b {kind}">{label}</span><span class="b {place_kind}">{place_label}</span></div>
+{status_buttons(job_id, status or "", f"/students?{urlencode({'lang': lang, 'where': where})}{below}")}</div>""")
+
+    def link(new_lang: str, new_where: str, label: str, on: bool) -> str:
+        return (f'<a href="/students?{urlencode({"lang": new_lang, "where": new_where})}" class="{"on" if on else ""}">'
+                f'{label}</a>')
+    in_lang = by_lang[lang]
+    filters = ("".join(link(key, where, f"{label} ({sum(places[where](r) for r in by_lang[key])})", key == lang)
+                       for key, label in (("", "All languages"), ("en", "🇬🇧 English OK only")))
+               + "</nav><nav>"
+               + "".join(link(lang, key, f"{label} ({sum(places[key](r) for r in in_lang)})", key == where)
+                         for key, label in (("", "Anywhere"), ("home", "🏠🔀 Remote or hybrid"), ("remote", "🏠 Remote only"))))
+    links = " ".join(f'<a class=btn href="{esc(url)}" target=_blank rel="noopener noreferrer">{name} ↗</a>'
+                     for name, url in SEARCHES)
+    seen = rows[0][8] if rows else "never"
+    body = (f'<p class=meta>Working-student and internship jobs in Germany, any field, posted in the last '
+            f'{settings["max_age_days"]} days, newest first (the newest {settings["top"]} are shown). '
+            f'Last fetched {esc(seen)}. Language is read from the ad: “ad in German” usually means German is needed.</p>'
+            f'<div class=actions>Search also on: {links}</div><nav>{filters}</nav>'
+            + ("".join(cards) or "<p>No jobs yet: run <code>uv run python -m job_radar.students</code>.</p>"))
+    return page("Working student", body, profiles, "students")
+
+
 def tracker_page(db, profiles: list[str]) -> str:
-    rows = db.execute("""SELECT t.job_id, t.status, t.note, t.title, t.company, t.url, t.updated_on, j.closed_on, j.id
-                         FROM tracker t LEFT JOIN jobs j ON j.id = t.job_id ORDER BY t.updated_on DESC""").fetchall()
+    rows = db.execute("""SELECT t.job_id, t.status, t.note, t.title, t.company, t.url, t.updated_on, j.closed_on, COALESCE(j.id, s.id)
+                         FROM tracker t LEFT JOIN jobs j ON j.id = t.job_id
+                         LEFT JOIN student_jobs s ON s.id = t.job_id ORDER BY t.updated_on DESC""").fetchall()
     sections = []
     for status in STATUSES:
         group = [r for r in rows if r[1] == status]
@@ -205,7 +274,9 @@ def tracker_page(db, profiles: list[str]) -> str:
 def set_status(db, job_id: str, status: str, note: str | None) -> None:
     if status not in STATUSES:
         return
-    job = db.execute("SELECT title, company, url FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    students.ensure_table(db)
+    job = (db.execute("SELECT title, company, url FROM jobs WHERE id = ?", (job_id,)).fetchone()
+           or db.execute("SELECT title, company, url FROM student_jobs WHERE id = ?", (job_id,)).fetchone())
     old = db.execute("SELECT note, title, company, url FROM tracker WHERE job_id = ?", (job_id,)).fetchone()
     if not job and not old:
         return
@@ -220,10 +291,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         db = store.connect()
         db.executescript(check.SCHEMA + ";")
+        students.ensure_table(db)
         url = urlparse(self.path)
         profiles = [p for p, in db.execute("SELECT DISTINCT profile FROM matches ORDER BY profile")]
         if url.path == "/tracker":
             return self.reply(tracker_page(db, profiles))
+        if url.path == "/students":
+            query = parse_qs(url.query)
+            return self.reply(students_page(db, profiles, query.get("lang", [""])[0], query.get("where", [""])[0]))
         if url.path == "/tailor":
             return self.reply(tailor_page(db, parse_qs(url.query).get("job", [""])[0], profiles))
         if url.path != "/":

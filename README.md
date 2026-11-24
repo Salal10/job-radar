@@ -143,6 +143,23 @@ text (an embedding model running on your PC). That gives the **match** number on
 a percentage). Badges add small boosts: 🌍 +0.04, 🛂 +0.03, 🧳 +0.02, 🏛 +0.01. The best `top` jobs are then checked
 by the AI, and any that turn out to be impossible are dropped.
 
+**Working-student jobs in Germany (optional):** add this to `profiles.toml` to get a **Working student** tab with
+Werkstudent, internship (Praktikum) and student-assistant jobs in **any field**:
+
+```toml
+[working_student]
+enabled = true
+max_age_days = 5      # posted in the last 5 days
+top = 100             # newest 100 shown
+avoid = ["Pflege", "Schülerpraktikum"]   # hide titles containing these words
+```
+
+Jobs come from the company pages Job Radar already reads, the Bundesagentur für Arbeit job search and Arbeitnow
+(`daily` fetches them; `uv run python -m job_radar.students` does it alone). Each card shows whether the ad is in
+English or needs German, and whether the work is remote, hybrid or on-site (❔ when the ad doesn't say), with filters
+for both. LinkedIn, Indeed, StepStone and englishjobs.de don't allow
+automated collection, so the tab has buttons that open a ready-made search there.
+
 ---
 
 ## How accurate are the badges?
