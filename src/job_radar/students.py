@@ -32,7 +32,7 @@ BA_KEY = {"X-API-Key": "jobboerse-jobsuche"}  # the public key of the agency's o
 BA_QUERIES = [{"was": "Werkstudent"}, {"was": "Working Student"}, {"was": "studentische Hilfskraft"},
               {"angebotsart": 34}]  # 34 = Praktikum / Trainee
 ARBEITNOW = "https://www.arbeitnow.com/api/job-board-api"
-DEFAULTS = {"enabled": False, "max_age_days": 5, "top": 100, "avoid": []}
+DEFAULTS = {"enabled": False, "max_age_days": 5, "top": 100, "avoid": [], "cities": [], "prefer": []}
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS student_jobs (
     id TEXT PRIMARY KEY, source TEXT, company TEXT, title TEXT, location TEXT, url TEXT,
@@ -78,6 +78,19 @@ def config() -> dict:
     """The [working_student] block of profiles.toml, with defaults. Off unless enabled = true."""
     data = tomllib.loads(PROFILES.read_text(encoding="utf-8")) if PROFILES.exists() else {}
     return DEFAULTS | data.get("working_student", {})
+
+
+def preferred(title: str, words: list[str]) -> str:
+    """The first prefer word in the title, or ''. Long words match inside German compounds ("Software" in
+    "Softwareentwicklung"); short ones like "AI", "IT", "QA" only as a whole word with the same capitals
+    ("IT-Support" yes, "Aircraft" or "with" no)."""
+    for word in words:
+        if len(word) <= 3:
+            if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", title):
+                return word
+        elif word.lower() in title.lower():
+            return word
+    return ""
 
 
 def clean_title(title: str) -> str:

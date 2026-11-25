@@ -151,7 +151,9 @@ Werkstudent, internship (Praktikum) and student-assistant jobs in **any field**:
 enabled = true
 max_age_days = 5      # posted in the last 5 days
 top = 100             # newest 100 shown
+cities = ["Dortmund"] # jobs in these cities first (in this order), then all others
 avoid = ["Pflege", "Schülerpraktikum"]   # hide titles containing these words
+prefer = ["Projektmanagement", "Software", "IT", "Support"]   # these titles first, with a star
 ```
 
 Jobs come from the company pages Job Radar already reads, the Bundesagentur für Arbeit job search and Arbeitnow

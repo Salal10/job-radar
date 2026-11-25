@@ -43,4 +43,6 @@ top = 15
 enabled = false       # true to turn it on
 max_age_days = 5      # only jobs posted in the last N days
 top = 100             # how many the tab shows, newest first
+cities = []           # these cities come first, e.g. ["Dortmund", "Bochum"]; then all others
 avoid = []            # hide titles containing these words, e.g. ["Pflege", "Schülerpraktikum"]
+prefer = []           # titles with these words come first and get a star, e.g. ["Projektmanagement", "Software", "IT", "Support"]

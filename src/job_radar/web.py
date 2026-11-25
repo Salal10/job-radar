@@ -219,7 +219,17 @@ def students_page(db, profiles: list[str], lang: str = "", where: str = "") -> s
     places = {"": lambda r: True, "home": lambda r: r[10] in ("remote", "hybrid"), "remote": lambda r: r[10] == "remote"}
     where = where if where in places else ""
     rows = [r for r in by_lang[lang] if places[where](r)]
-    shown = rows[:settings["top"]]
+    # Your cities first, in the order you listed them; then everything else. Inside each group, titles with a
+    # prefer word come first. Newest first inside each of those.
+    cities = settings["cities"]
+
+    def city_of(row) -> str:
+        return next((c for c in cities if re.search(rf"(?i)\b{re.escape(c)}\b", row[4] or "")), "")
+    rows.sort(key=lambda r: (cities.index(c) if (c := city_of(r)) else len(cities),
+                             not students.preferred(r[3], settings["prefer"])))  # sort keeps the date order
+    in_prefer = sum(bool(students.preferred(r[3], settings["prefer"])) for r in rows)
+    in_cities = sum(bool(city_of(r)) for r in rows)
+    shown = rows[:max(settings["top"], in_cities)]  # never cut off jobs in your cities
     cards = []
     for i, (job_id, source, company, title, location, url, posted, code, seen, status, remote) in enumerate(shown):
         below = f"#s{i + 1}" if i + 1 < len(shown) else ""
@@ -229,7 +239,7 @@ def students_page(db, profiles: list[str], lang: str = "", where: str = "") -> s
         cards.append(f"""<div class=card id="s{i}"><div class=title><a href="{esc(url)}" target=_blank
 rel="noopener noreferrer">{esc(students.clean_title(title))}</a></div>
 <div class=meta>{esc(company)} · {esc(location) or "Germany"} · posted {esc(posted)} · via {esc(via)}{" · ★ saved" if status else ""}</div>
-<div class=badges><span class="b {kind}">{label}</span><span class="b {place_kind}">{place_label}</span></div>
+<div class=badges>{f'<span class="b good">📍 {esc(city)}</span>' if (city := city_of(shown[i])) else ""}{f'<span class="b good">⭐ {esc(word)}</span>' if (word := students.preferred(title, settings["prefer"])) else ""}<span class="b {kind}">{label}</span><span class="b {place_kind}">{place_label}</span></div>
 {status_buttons(job_id, status or "", f"/students?{urlencode({'lang': lang, 'where': where})}{below}")}</div>""")
 
     def link(new_lang: str, new_where: str, label: str, on: bool) -> str:
@@ -246,6 +256,9 @@ rel="noopener noreferrer">{esc(students.clean_title(title))}</a></div>
     seen = rows[0][8] if rows else "never"
     body = (f'<p class=meta>Working-student and internship jobs in Germany, any field, posted in the last '
             f'{settings["max_age_days"]} days, newest first (the newest {settings["top"]} are shown). '
+            + (f'Jobs in {esc(", ".join(cities))} come first ({in_cities} now). ' if cities else '')
+            + (f'⭐ = a title with one of your prefer words ({in_prefer} now): first within each group. '
+               if settings["prefer"] else '') +
             f'Last fetched {esc(seen)}. Language is read from the ad: “ad in German” usually means German is needed.</p>'
             f'<div class=actions>Search also on: {links}</div><nav>{filters}</nav>'
             + ("".join(cards) or "<p>No jobs yet: run <code>uv run python -m job_radar.students</code>.</p>"))
